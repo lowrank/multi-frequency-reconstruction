@@ -1,0 +1,4 @@
+ngsolve
+numpy
+scipy
+matplotlib
