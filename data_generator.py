@@ -58,23 +58,24 @@ class DataGenerator:
         t2 = time.perf_counter()
         print(f"Mesh generation took {t2 - t1} seconds")
 
-    def solve(self, inc_kx, inc_ky, permittivity):
+    def solve(self, inc_kx, inc_ky, permittivity, source = None):
         """
         solve the Helmholtz equation with incident wave exp(i kx x + i ky y).
 
         @param inc_kx: wave number in x direction
         @param inc_ky: wave number in y direction
         @param permittivity: permittivity function (q function).
+        @param source: source function (f function)
 
         @return: the scattered wave u_scat = u_tot - u_inc
 
         The Helmholtz equation is
 
-        - Delta u_{tot} - k^2 q u_{tot} = 0
+        - Delta u_{tot} - k^2 q u_{tot} = f(x)
 
         or 
 
-        - Delta u_{scat} - k^2 q u_{scat} = k^2 (q - 1) u_{inc} 
+        - Delta u_{scat} - k^2 q u_{scat} = k^2 (q - 1) u_{inc} + f(x)
 
         The weak formulation writes into (v as test function)
 
@@ -90,6 +91,8 @@ class DataGenerator:
 
         linear_form = LinearForm(self.fes)
         linear_form += k_sq * (permittivity - 1) * u_inc * self.v * dx
+        if source:
+            linear_form += source * self.v * dx
         linear_form.Assemble()
 
         a = BilinearForm(self.fes)
@@ -138,7 +141,7 @@ class DataGenerator:
 
     def generate_cauchy_data(self, frequency, direction_angles, permittivity):
         """
-        generate Cauchy data of u on a circle of radius r.
+        generate Cauchy data of u on a circle of radius r (no source function)
 
         @param frequency: k (here it refers to wave number). 
         @param direction_angles: the directions of incident waves.
