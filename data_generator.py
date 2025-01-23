@@ -14,6 +14,14 @@ ngsglobals.msg_level = 0
 class DataGenerator:
     """
     solve Helmholtz equation with Absorbing Boundary Conditions (ABC) using NGSolve.
+
+    # The computational domain is [-2, 2]. 
+
+    @param maxh: the max diameter of triangle mesh in each subdomain.
+    @param pml_alpha: the pml parameter for absorbing strength, smaller value needs a larger pml size.  
+    @param order: order of finite element method
+    @param radius: the data receivers (Cauchy data) are placed on a circle of this radius (should be inside the domain). 
+    @param num_points: number of receivers on the circle.
     """
     def __init__(self, maxh = (0.01, 0.03), pml_alpha=10j, order=3, radius=1.5, num_points=360):
 
@@ -28,6 +36,8 @@ class DataGenerator:
 
         self.geo = SplineGeometry()
 
+        # [-2, 2]^2 is the interior domain (label is 1)
+        # [-3, 3]^2 is the full domain including the PML (label is 2)
         self.geo.AddRectangle((-2, -2), (2, 2), leftdomain=1, rightdomain=2)
         self.geo.AddRectangle((-3, -3), (3, 3), leftdomain=2, rightdomain=0, bc="outerbnd")
 
@@ -54,15 +64,29 @@ class DataGenerator:
 
         @param inc_kx: wave number in x direction
         @param inc_ky: wave number in y direction
-        @param permittivity: permittivity function
+        @param permittivity: permittivity function (q function).
 
         @return: the scattered wave u_scat = u_tot - u_inc
+
+        The Helmholtz equation is
+
+        - Delta u_{tot} - k^2 q u_{tot} = 0
+
+        or 
+
+        - Delta u_{scat} - k^2 q u_{scat} = k^2 (q - 1) u_{inc} 
+
+        The weak formulation writes into (v as test function)
+
+        int_{D} ( \nabla u_{scat} cdot \nabla v - k^2 q u_{scat} v ) dx  ---> Bilinear form
+
+            = int_{D} k^2 (q - 1) u_{inc} v dx  ---> Linear form
         """
 
         t1 = time.perf_counter()
 
-        k_sq = inc_kx**2 + inc_ky**2
-        u_inc = CF((exp(1j * inc_kx * x) * exp(1j * inc_ky * y)))
+        k_sq = inc_kx**2 + inc_ky**2 # frequency squared
+        u_inc = CF((exp(1j * inc_kx * x) * exp(1j * inc_ky * y))) # incident wave function
 
         linear_form = LinearForm(self.fes)
         linear_form += k_sq * (permittivity - 1) * u_inc * self.v * dx
@@ -84,6 +108,14 @@ class DataGenerator:
     def born_solve(self, inc_kx, inc_ky, permittivity, background_permittivity):
         """
         solve the Helmholtz equation with Born approximation.
+
+        q \approx q_0 ---> background permittivity (not necessarily constant)
+
+        Then Born approximation solves: 
+
+        - Delta u_{born, scat} - k^2 q_0 u_{born, scat} = k^2 (q - 1) u_{inc}
+
+        The solution u_{born, scat} is linear in q.         
         """
 
         k_sq = inc_kx**2 + inc_ky**2
@@ -107,10 +139,16 @@ class DataGenerator:
     def generate_cauchy_data(self, frequency, direction_angles, permittivity):
         """
         generate Cauchy data of u on a circle of radius r.
+
+        @param frequency: k (here it refers to wave number). 
+        @param direction_angles: the directions of incident waves.
+        @param permittivity: the medium permittivity q. 
+
+        Knowing the medium q, one can generate Cauchy data (Dirichlet-Neumann pairs) on the receivers. 
         """
 
-        cauchy_u_vals = []
-        cauchy_gu_vals = []
+        cauchy_u_vals = [] # Dirchlet data
+        cauchy_gu_vals = [] # Neumann data
 
         for angle in direction_angles:
 
@@ -137,22 +175,6 @@ class DataGenerator:
         save the solution to a .mat file.
         """
         sio.savemat(filename, {string_name: u.vec.FV().NumPy()})
-
-    def linearization(self, frequency, direction_angles, cauchy_data, background_u_tot, background_permittivity):
-        """
-        linearize the Helmholtz equation with respect to the permittivity, then solve the reconstruction by least square.
-        """
-
-        u_vals, grad_u_vals = cauchy_data
-        bg_u_vals, bg_grad_u_vals = self.generate_cauchy_data(frequency, direction_angles, background_permittivity)
-
-        diff_u_vals = u_vals - bg_u_vals
-        diff_grad_u_vals = grad_u_vals - bg_grad_u_vals
-
-        for i, dir_v in enumerate(direction_angles):
-            for j, dir_u in enumerate(direction_angles):
-                diff = sum( [diff_grad_u_vals[i][k] * bg_u_vals[j][k] - bg_grad_u_vals[j][k] * diff_u_vals[i][k] for k in range(len(self.cauchy_points))] ) * (2 * pi * self.cauchy_radius / len(self.cauchy_points) ) / frequency**2
-                print(i,j, diff)
 
         
         
