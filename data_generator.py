@@ -84,7 +84,7 @@ class DataGenerator:
             = int_{D} k^2 (q - 1) u_{inc} v dx  ---> Linear form
         """
 
-        t1 = time.perf_counter()
+        # t1 = time.perf_counter()
 
         k_sq = inc_kx**2 + inc_ky**2 # frequency squared
         u_inc = CF((exp(1j * inc_kx * x) * exp(1j * inc_ky * y))) # incident wave function
@@ -103,8 +103,8 @@ class DataGenerator:
         u_scat.vec.data = a.mat.Inverse(freedofs=self.fes.FreeDofs(),
                                         inverse="sparsecholesky") * linear_form.vec
 
-        t2 = time.perf_counter()
-        print(f"Solving took {t2 - t1} seconds")
+        # t2 = time.perf_counter()
+        # print(f"Solving took {t2 - t1} seconds")
 
         return u_scat
 

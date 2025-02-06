@@ -2,6 +2,7 @@
 medium_generator.py
 """
 from ngsolve import *
+import numpy as np
 
 class MediumGenerator:
     """
@@ -25,7 +26,6 @@ class MediumGenerator:
         """
         Draw(medium)
 
-
 def disk_func(disk_params):
     """
     Generate a disk with parameters given in disk_params.
@@ -44,3 +44,12 @@ def cosine_func(cos_params):
                   0.5 * cos_params['v'] * \
                     ( 1 + cos(pi * sqrt((x - cos_params['x'])**2 + \
                                         (y - cos_params['y'])**2)/(cos_params['r'])) ))
+
+def export_mat(func, mesh, size=(128, 128)):
+    """
+    Generate the mat file for the function's image. The domain is fixed in [-2, 2] x [-2, 2].
+    """
+    X = np.linspace(-1.5, 1.5, num=size[0])
+    Y = np.linspace(-1.5, 1.5, num=size[1])
+    pts = np.meshgrid(X, Y)
+    return func(mesh(pts[0].flatten(), pts[1].flatten())).reshape(size).real
