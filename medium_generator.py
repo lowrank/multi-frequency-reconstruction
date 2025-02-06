@@ -47,7 +47,7 @@ def cosine_func(cos_params):
 
 def export_mat(func, mesh, size=(128, 128)):
     """
-    Generate the mat file for the function's image. The domain is fixed in [-2, 2] x [-2, 2].
+    Generate the mat file for the function's image. The target domain is fixed in [-1.5, 1.5] x [-1.5, 1.5].
     """
     X = np.linspace(-1.5, 1.5, num=size[0])
     Y = np.linspace(-1.5, 1.5, num=size[1])
