@@ -9,72 +9,105 @@ from matplotlib import pyplot as plt
 import matplotlib
 
 import torch
-import torch.nn as nn
+from escnn import gspaces
+from escnn import nn
 
 from torch import optim
 from torch.utils.data import DataLoader, random_split
 import torch.optim.lr_scheduler as lr_scheduler
 from tqdm import tqdm
-
     
 from torch.utils.data.dataset import Dataset
 
-class DoubleConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
+class SteerableConv(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, N=8, first_conv=False, last_deconv=False):
         super().__init__()
-        self.conv_op = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding="same", bias=True),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding="same", bias=True),
-            nn.ReLU(inplace=True)
+        r2_act = gspaces.rot2dOnR2(N=N)
+        
+        if not first_conv:
+            feat_type_in = nn.FieldType(r2_act, in_channels * [r2_act.regular_repr])
+        else:
+            feat_type_in = nn.FieldType(r2_act, in_channels * [r2_act.trivial_repr])
+        
+        if not last_deconv:
+            feat_type_out = nn.FieldType(r2_act, out_channels * [r2_act.regular_repr])
+        else:
+            feat_type_out = nn.FieldType(r2_act, out_channels * [r2_act.trivial_repr])
+        
+        self.conv_op = torch.nn.Sequential(
+            nn.R2Conv(feat_type_in, feat_type_out, kernel_size=kernel_size, padding=(kernel_size-1)//2),
+            nn.ReLU(feat_type_out)
         )
 
     def forward(self, x):
         return self.conv_op(x)
-
-
-class DownSample(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    
+class DownSample(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, N=8, first_conv=False):
         super().__init__()
-        self.conv = DoubleConv(in_channels, out_channels)
-        self.pool = nn.AvgPool2d(kernel_size=(2,2))
+        r2_act=gspaces.rot2dOnR2(N=N)
+        self.feat_type = nn.FieldType(r2_act, out_channels * [r2_act.regular_repr])
+        
+        self.conv_1 = SteerableConv(in_channels, out_channels, kernel_size=kernel_size, N=N, first_conv=first_conv)
+        self.conv_2 = SteerableConv(out_channels, out_channels, kernel_size=kernel_size, N=N, first_conv=False)
+
+        self.pool = nn.PointwiseAvgPool(self.feat_type, kernel_size=(2,2))
 
     def forward(self, x):
-        down = self.conv(x)
+        down = self.conv_2( self.conv_1(x) )
         p = self.pool(down)
         return down, p
-
-
-class UpSample(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    
+    
+class UpSample(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, N=8, last_deconv=False):
         super().__init__()
-        self.up   = nn.UpsamplingNearest2d(scale_factor=2)
-        self.conv = DoubleConv(in_channels, out_channels)
+        r2_act=gspaces.rot2dOnR2(N=N)
+        self.up_feat_type= nn.FieldType(r2_act, (in_channels) * [r2_act.regular_repr])
+        self.out_feat_type= nn.FieldType(r2_act, (in_channels + out_channels) * [r2_act.regular_repr])
+        
+        self.up   = nn.R2Upsampling(self.up_feat_type, scale_factor=2)
+        
+        self.conv_1 = SteerableConv(in_channels+out_channels, out_channels, kernel_size=kernel_size, N=N, last_deconv=False)
+        self.conv_2 = SteerableConv(out_channels, out_channels, kernel_size=kernel_size, N=N, last_deconv=last_deconv)
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
-        x = torch.cat([x1, x2], 1)
-        return self.conv(x)
-
-class u_net(nn.Module):
-    def __init__(self, in_channels, feat):
+        x = torch.cat([x1.tensor, x2.tensor], 1)
+        x = nn.GeometricTensor(x, self.out_feat_type)
+        return self.conv_2(self.conv_1(x))
+    
+class steerable_u_net(torch.nn.Module):
+    def __init__(self, in_channels, feat, N=8):
         super().__init__()
-        self.down_convolution_1 = DownSample(in_channels,   feat)
+        
+        r2_act=gspaces.rot2dOnR2(N=N)
+        
+        self.init_feat_type_in = nn.FieldType(r2_act, in_channels * [r2_act.trivial_repr])
+        final_feat_type_in = nn.FieldType(r2_act, feat * [r2_act.trivial_repr])
+        final_feat_type_out = nn.FieldType(r2_act, 1 * [r2_act.trivial_repr])
+
+        self.down_convolution_1 = DownSample(in_channels,   feat, first_conv=True)
         self.down_convolution_2 = DownSample(    feat,  2 * feat)
         self.down_convolution_3 = DownSample(2 * feat,  4 * feat)
         self.down_convolution_4 = DownSample(4 * feat,  8 * feat)
 
-        self.bottle_neck        = DoubleConv(8 * feat, 16 * feat)
+        self.bottle_neck        = torch.nn.Sequential(SteerableConv(8 * feat, 16 * feat),
+                                                SteerableConv(16 * feat, 16 * feat)
+                                               )
 
-        self.up_convolution_1 = UpSample(16 * feat + 8 * feat,  8 * feat)
-        self.up_convolution_2 = UpSample(8  * feat + 4 * feat,  4 * feat)
-        self.up_convolution_3 = UpSample(4  * feat + 2 * feat,  2 * feat)
-        self.up_convolution_4 = UpSample(2  * feat +     feat,      feat)
+        self.up_convolution_1 = UpSample(16 * feat,  8 * feat)
+        self.up_convolution_2 = UpSample(8  * feat,  4 * feat)
+        self.up_convolution_3 = UpSample(4  * feat,  2 * feat)
+        self.up_convolution_4 = UpSample(2  * feat,      feat, last_deconv=True)
 
-        self.out = nn.Conv2d(in_channels=feat, out_channels=1, kernel_size=1, bias=True)
+        self.out = nn.R2Conv(final_feat_type_in, final_feat_type_out, kernel_size=1, padding = 0)
+
 
     def forward(self, x):
-        down_1, p1 = self.down_convolution_1(x)
+        _x = nn.GeometricTensor(x, self.init_feat_type_in)
+        
+        down_1, p1 = self.down_convolution_1(_x)
         down_2, p2 = self.down_convolution_2(p1)
         down_3, p3 = self.down_convolution_3(p2)
         down_4, p4 = self.down_convolution_4(p3)
@@ -85,12 +118,11 @@ class u_net(nn.Module):
         up_2 = self.up_convolution_2(up_1, down_3)
         up_3 = self.up_convolution_3(up_2, down_2)
         up_4 = self.up_convolution_4(up_3, down_1)
-
+        
         out = self.out(up_4)
        
-        return out
-
-
+        return out.tensor
+#####################################################################################################    
 class MF_Dataset(Dataset):
     def __init__(self, xdata, ydata):
         self.xdata = torch.tensor(xdata).unsqueeze(dim=1)
@@ -160,7 +192,7 @@ def get_data(out_path, train_folder_paths, data_folder_path):
 
 def gen_data(output_folder, train_folders, out_folder, data_folder, model):
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda:1" if torch.cuda.is_available() else "cpu"
     
     out_folder_path = out_folder
 
