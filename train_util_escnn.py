@@ -192,7 +192,7 @@ def get_data(out_path, train_folder_paths, data_folder_path):
 
 def gen_data(output_folder, train_folders, out_folder, data_folder, model):
     
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
     out_folder_path = out_folder
 
