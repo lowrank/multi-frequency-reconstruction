@@ -6,16 +6,13 @@
 
 # Data generation
 
-from IPython.display import clear_output
 from data_generator import DataGenerator
 from medium_generator import MediumGenerator, disk_func, cosine_func, export_mat
 from ngsolve import * 
-from ngsolve.webgui import Draw
 from numpy.linalg import lstsq
 import multiprocessing
 from joblib import Parallel, delayed
 import numpy as np
-import matplotlib.pyplot as plt
 from os.path import dirname, join as pjoin
 import scipy.io as sio
 from tqdm import tqdm
@@ -25,9 +22,9 @@ import os
 
 dg = DataGenerator(maxh = (0.05, 0.2))
 
-n_process = 42 # less than the max CPU number
+n_process = 48 # less than the max CPU number
 
-sample_size = 500
+sample_size = 5000
 
 if not os.path.exists('data'):
     os.makedirs('data')
@@ -39,9 +36,6 @@ if not os.path.exists('train'):
     os.makedirs('train')
 
 
-# In[60]:
-
-
 medium = MediumGenerator(cosine_func) # MediumGenerator(disk_func)
 
 background_params = [{"type": 0, "x": 0.0, "y": 0.0, "r": 0.5, "v": 0.0}]
@@ -49,7 +43,7 @@ background_permittivity = medium.generate(background_params)
 
 # create a sample with several bumps (intrinsic dimension is n_bumps * 4).
 
-def generate_media(n_bumps=8, sample_size=500):
+def generate_media(n_bumps=8, sample_size=5000):
     """
     The medium consists of bumps with radius uniformly in [0.2, 0.4], locations uniformly in unit disk, value uniformly in [0.5, 1.5]
     """
@@ -80,16 +74,7 @@ def generate_media(n_bumps=8, sample_size=500):
             end_time = time.time()
             print('elapsed time: {:6.2f}, progress: {:4d} / {:4d}'.format(end_time - start_time, (sample_id+1), sample_size))
             
-
-
-# In[61]:
-
-
-generate_media() # uncomment to generate the data.
-
-
-# In[62]:
-
+# generate_media() # uncomment to generate the data.
 
 def single_loop(i, pt, bpt, freq, inc_dir, out_dir):        
     mat = []
@@ -152,9 +137,6 @@ def assemble_linear_sys(pt, bpt, freq, n_in_dir=32, n_out_dir=8):
     return A.NumPy(),  b.NumPy()
 
 
-# In[75]:
-
-
 data_dir = pjoin('.', 'data')
 
 for freq_id in range(30):
@@ -165,10 +147,17 @@ for freq_id in range(30):
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
-    cur_freq = freq_id * 0.2 # step size 0.1 in frequency domain
+    cur_freq = freq_id * 0.2 # step size 0.2 in frequency domain
 
 
     for sample_id in tqdm(range(sample_size)):
+        
+        output_name = 'train/' + str(freq_id) + '/train_' + str(sample_id) +'.mat'
+        
+        # if the output file exists, then skip.
+        if os.path.exists(output_name):
+            continue
+            
         data_filename = pjoin(data_dir, 'data_'+str(sample_id)+'.mat')
         mat_contents = sio.loadmat(data_filename)
         params_config = mat_contents['params'][0]
